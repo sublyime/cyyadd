@@ -1,0 +1,202 @@
+import asyncio
+import datetime
+from fastapi import FastAPI, Query, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.exc import SQLAlchemyError
+from typing import AsyncGenerator
+
+from plume import gaussian_plume
+from weather import fetch_noaa_weather, fetch_open_meteo
+from database import SessionLocal
+from models import WeatherData, WeatherStation
+
+load_dotenv()
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Dependency
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with SessionLocal() as session:
+        yield session
+
+# Request/response models
+class PlumeRequest(BaseModel):
+    x: float
+    y: float
+    z: float
+    Q: float
+    u: float
+    H: float
+    sy: float
+    sz: float
+    terrain_height: float = 0.0
+    terrain_gradient: float = 0.0
+    building_height: float = 0.0
+
+class PuffRequest(BaseModel):
+    x: float
+    y: float
+    z: float
+    Q: float
+    u: float
+    H: float
+    t: float
+    sy: float
+    sz: float
+    terrain_height: float = 0.0
+    terrain_gradient: float = 0.0
+    building_height: float = 0.0
+
+class InstantaneousRequest(BaseModel):
+    x: float
+    y: float
+    z: float
+    Q: float
+    u: float
+    H: float
+    t: float
+    stability: str
+    terrain_height: float = 0.0
+    terrain_gradient: float = 0.0
+    building_height: float = 0.0
+
+@app.get("/")
+async def root():
+    return {"message": "Dispersion Modeling API running"}
+
+# Modeling endpoints
+@app.post("/model/plume")
+async def model_plume(req: PlumeRequest, use_weather: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    u = req.u
+    if use_weather:
+        result = await db.execute(select(WeatherData).order_by(WeatherData.timestamp.desc()).limit(1))
+        latest = result.scalars().first()
+        if latest and isinstance(latest.data, dict):
+            # try common keys
+            for k in ("windspeed_10m", "wind_speed", "wind_speed_kph"):
+                if k in latest.data:
+                    try:
+                        u = float(latest.data[k])
+                        break
+                    except Exception:
+                        pass
+    c = gaussian_plume(
+        req.x, req.y, req.z, req.Q, u, req.H, req.sy, req.sz,
+        terrain_height=req.terrain_height,
+        terrain_gradient=req.terrain_gradient,
+        building_height=req.building_height
+    )
+    return {"concentration": c}
+
+@app.post("/model/puff")
+async def model_puff(req: PuffRequest, use_weather: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    u = req.u
+    if use_weather:
+        result = await db.execute(select(WeatherData).order_by(WeatherData.timestamp.desc()).limit(1))
+        latest = result.scalars().first()
+        if latest and isinstance(latest.data, dict):
+            for k in ("windspeed_10m", "wind_speed", "wind_speed_kph"):
+                if k in latest.data:
+                    try:
+                        u = float(latest.data[k])
+                        break
+                    except Exception:
+                        pass
+    c = gaussian_plume(
+        req.x, req.y, req.z, req.Q, u, req.H, req.t, req.sy, req.sz,
+        terrain_height=req.terrain_height,
+        terrain_gradient=req.terrain_gradient,
+        building_height=req.building_height
+    )
+    return {"concentration": c}
+
+@app.post("/model/instantaneous")
+async def model_instantaneous(req: InstantaneousRequest, use_weather: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    u = req.u
+    if use_weather:
+        result = await db.execute(select(WeatherData).order_by(WeatherData.timestamp.desc()).limit(1))
+        latest = result.scalars().first()
+        if latest and isinstance(latest.data, dict):
+            for k in ("windspeed_10m", "wind_speed", "wind_speed_kph"):
+                if k in latest.data:
+                    try:
+                        u = float(latest.data[k])
+                        break
+                    except Exception:
+                        pass
+    c = 0.0  # Placeholder for concentration calculation logic
+    return {"concentration": c}
+
+# Weather fetch endpoints
+@app.get("/weather/noaa")
+async def get_noaa_weather(lat: float = Query(...), lon: float = Query(...)):
+    try:
+        data = await fetch_noaa_weather(lat, lon)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/weather/open-meteo")
+async def get_open_meteo(lat: float = Query(...), lon: float = Query(...)):
+    try:
+        data = await fetch_open_meteo(lat, lon)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Weather storage endpoints
+@app.post("/weather/store")
+async def store_weather(data: dict, db: AsyncSession = Depends(get_db)):
+    try:
+        entry = WeatherData(timestamp=datetime.datetime.utcnow(), data=data)
+        db.add(entry)
+        await db.commit()
+        await db.refresh(entry)
+        return {"id": entry.id, "timestamp": entry.timestamp}
+    except SQLAlchemyError as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/weather/latest")
+async def get_latest_weather(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WeatherData).order_by(WeatherData.timestamp.desc()).limit(1))
+    latest = result.scalars().first()
+    if not latest:
+        raise HTTPException(status_code=404, detail="No weather data found")
+    return {"timestamp": latest.timestamp, "data": latest.data}
+
+# Stations endpoints
+@app.post("/stations")
+async def register_station(name: str, lat: float, lon: float, provider: str = 'open-meteo', db: AsyncSession = Depends(get_db)):
+    try:
+        await db.execute("INSERT INTO weather_stations (name, lat, lon, provider) VALUES (:name, :lat, :lon, :provider)", {"name": name, "lat": lat, "lon": lon, "provider": provider})
+        await db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/stations")
+async def list_stations(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WeatherStation))
+    rows = result.scalars().all()
+    return [{"id": r.id, "name": r.name, "lat": r.lat, "lon": r.lon, "provider": r.provider} for r in rows]
+
+# Background poller
+from station import poll_loop
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(poll_loop())
