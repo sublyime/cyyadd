@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
-import HeatmapLayer from 'react-leaflet-heatmap-layer-v3';
+// import HeatmapLayer from 'react-leaflet-heatmap-layer-v3';
 import 'leaflet/dist/leaflet.css';
 import { Box, Paper, Typography, Chip } from '@mui/material';
 import './MapView.css';
@@ -32,7 +32,7 @@ const MapView = ({ modelResults, weatherData }) => {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
-        {heatmapData.length > 0 && (
+        {/* {heatmapData.length > 0 && (
           <HeatmapLayer
             fitBoundsOnLoad
             fitBoundsOnUpdate
@@ -50,7 +50,7 @@ const MapView = ({ modelResults, weatherData }) => {
             blur={15}
             max={modelResults.max_concentration || 1.0}
           />
-        )}
+        )} */}
       </MapContainer>
 
       {/* Info Panel */}

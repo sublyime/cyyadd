@@ -23,4 +23,107 @@ public class Plume {
     private double so2_ppb_forecast;
 
     // Getters and setters
+    public Integer getId() {
+        return id;
+    }
+
+    public void setId(Integer id) {
+        this.id = id;
+    }
+
+    public LocalDateTime getTime_obs() {
+        return time_obs;
+    }
+
+    public void setTime_obs(LocalDateTime time_obs) {
+        this.time_obs = time_obs;
+    }
+
+    public double getSo2_ppb() {
+        return so2_ppb;
+    }
+
+    public void setSo2_ppb(double so2_ppb) {
+        this.so2_ppb = so2_ppb;
+    }
+
+    public double getSo2_error_ppb() {
+        return so2_error_ppb;
+    }
+
+    public void setSo2_error_ppb(double so2_error_ppb) {
+        this.so2_error_ppb = so2_error_ppb;
+    }
+
+    public double getSo2_flag() {
+        return so2_flag;
+    }
+
+    public void setSo2_flag(double so2_flag) {
+        this.so2_flag = so2_flag;
+    }
+
+    public double getWind_dir_deg() {
+        return wind_dir_deg;
+    }
+
+    public void setWind_dir_deg(double wind_dir_deg) {
+        this.wind_dir_deg = wind_dir_deg;
+    }
+
+    public double getWind_speed_ms() {
+        return wind_speed_ms;
+    }
+
+    public void setWind_speed_ms(double wind_speed_ms) {
+        this.wind_speed_ms = wind_speed_ms;
+    }
+
+    public double getWind_dir_error_deg() {
+        return wind_dir_error_deg;
+    }
+
+    public void setWind_dir_error_deg(double wind_dir_error_deg) {
+        this.wind_dir_error_deg = wind_dir_error_deg;
+    }
+
+    public double getWind_speed_error_ms() {
+        return wind_speed_error_ms;
+    }
+
+    public void setWind_speed_error_ms(double wind_speed_error_ms) {
+        this.wind_speed_error_ms = wind_speed_error_ms;
+    }
+
+    public String getStation_id() {
+        return station_id;
+    }
+
+    public void setStation_id(String station_id) {
+        this.station_id = station_id;
+    }
+
+    public String getSpecies() {
+        return species;
+    }
+
+    public void setSpecies(String species) {
+        this.species = species;
+    }
+
+    public LocalDateTime getTime_forecast() {
+        return time_forecast;
+    }
+
+    public void setTime_forecast(LocalDateTime time_forecast) {
+        this.time_forecast = time_forecast;
+    }
+
+    public double getSo2_ppb_forecast() {
+        return so2_ppb_forecast;
+    }
+
+    public void setSo2_ppb_forecast(double so2_ppb_forecast) {
+        this.so2_ppb_forecast = so2_ppb_forecast;
+    }
 }
