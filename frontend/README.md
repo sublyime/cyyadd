@@ -2,7 +2,7 @@
 
 ## Features
 - React app
-- Mapbox GL for interactive mapping
+- OpenStreetMaps for interactive mapping
 - Real-time plume visualization
 - Weather, health, and event UI
 
@@ -17,5 +17,4 @@
    ```
 
 ## Notes
-- Connects to FastAPI backend at http://localhost:8000
-- Mapbox access token required (set in .env)
+- Connects to a Java Spring Boot backend at http://localhost:8080/api

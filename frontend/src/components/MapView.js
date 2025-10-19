@@ -1,107 +1,57 @@
-import React, { useRef, useEffect, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import React, { useState, useEffect } from 'react';
+import { MapContainer, TileLayer } from 'react-leaflet';
+import HeatmapLayer from 'react-leaflet-heatmap-layer-v3';
+import 'leaflet/dist/leaflet.css';
 import { Box, Paper, Typography, Chip } from '@mui/material';
 import './MapView.css';
 
-mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
-
 const MapView = ({ modelResults, weatherData }) => {
-  const mapContainer = useRef(null);
-  const map = useRef(null);
-  const [plumeLayers, setPlumeLayers] = useState([]);
+  const [heatmapData, setHeatmapData] = useState([]);
 
   useEffect(() => {
-    if (map.current) return;
-
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/satellite-v9',
-      center: [-98.5795, 39.8283],
-      zoom: 9,
-      pitch: 0,
-      bearing: 0,
-    });
-
-    map.current.on('load', () => {
-      // Add base layers
-      map.current.addSource('terrain', {
-        type: 'raster-dem',
-        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-        tileSize: 512,
-        maxzoom: 14,
-      });
-
-      // Add heatmap layer for plume visualization
-      map.current.addLayer({
-        id: 'plume-heatmap',
-        type: 'heatmap',
-        source: {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] },
-        },
-        paint: {
-          'heatmap-weight': ['interpolate', ['linear'], ['get', 'concentration'], 0, 0, 100, 1],
-          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
-          'heatmap-color': [
-            'interpolate',
-            ['linear'],
-            ['heatmap-density'],
-            0,
-            'rgba(0, 0, 255, 0)',
-            0.25,
-            '#00ff00',
-            0.5,
-            '#ffff00',
-            0.75,
-            '#ff8800',
-            1,
-            '#ff0000',
-          ],
-          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 9, 20],
-          'heatmap-opacity': 0.7,
-        },
-      });
-    });
-
-    return () => {
-      map.current?.remove();
-      map.current = null;
-    };
-  }, []);
-
-  // Update plume visualization when modelResults change
-  useEffect(() => {
-    if (!map.current || !modelResults) return;
-
+    if (!modelResults) return;
     const { grid, concentration } = modelResults;
     if (!grid || !concentration) return;
 
-    // Generate GeoJSON features from model results
-    const features = grid.map((point, idx) => ({
-      type: 'Feature',
-      geometry: {
-        type: 'Point',
-        coordinates: [point.lon, point.lat],
-      },
-      properties: {
-        concentration: concentration[idx],
-        z: point.z,
-      },
-    }));
-
-    const source = map.current.getSource('plume-heatmap');
-    if (source) {
-      source.setData({
-        type: 'FeatureCollection',
-        features,
-      });
-    }
+    const points = grid.map((point, idx) => [
+      point.lat,
+      point.lon,
+      concentration[idx], // intensity
+    ]);
+    setHeatmapData(points);
   }, [modelResults]);
 
   return (
     <Box sx={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+      <MapContainer
+        center={[39.8283, -98.5795]}
+        zoom={9}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        />
+        {heatmapData.length > 0 && (
+          <HeatmapLayer
+            fitBoundsOnLoad
+            fitBoundsOnUpdate
+            points={heatmapData}
+            longitudeExtractor={(m) => m[1]}
+            latitudeExtractor={(m) => m[0]}
+            intensityExtractor={(m) => parseFloat(m[2])}
+            gradient={{
+              0.25: '#00ff00',
+              0.5: '#ffff00',
+              0.75: '#ff8800',
+              1.0: '#ff0000'
+            }}
+            radius={20}
+            blur={15}
+            max={modelResults.max_concentration || 1.0}
+          />
+        )}
+      </MapContainer>
 
       {/* Info Panel */}
       <Paper
@@ -112,7 +62,7 @@ const MapView = ({ modelResults, weatherData }) => {
           padding: 2,
           maxWidth: 300,
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          zIndex: 10,
+          zIndex: 1000, // Ensure it's above the map
         }}
       >
         <Typography variant="h6" gutterBottom>

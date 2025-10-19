@@ -1,0 +1,33 @@
+{
+  "name": "dispersion-modeling-platform",
+  "version": "1.0.0",
+  "description": "A web-based platform for atmospheric dispersion modeling, providing real-time visualization and analysis of pollutant plumes.",
+  "main": "index.js",
+  "scripts": {
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd java-backend && mvn clean install",
+    "install:all": "npm run install:frontend && npm run install:backend",
+    "start:frontend": "cd frontend && npm start",
+    "start:backend": "cd java-backend && mvn spring-boot:run",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd java-backend && mvn package",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/dispersion-modeling-platform.git"
+  },
+  "keywords": [
+    "dispersion-modeling",
+    "react",
+    "spring-boot",
+    "gis",
+    "atmospheric-science"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/your-username/dispersion-modeling-platform/issues"
+  },
+  "homepage": "https://github.com/your-username/dispersion-modeling-platform#readme"
+}

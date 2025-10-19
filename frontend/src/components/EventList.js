@@ -29,7 +29,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EventIcon from '@mui/icons-material/Event';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
 const EventList = () => {
   const [events, setEvents] = useState([]);
@@ -57,12 +57,12 @@ const EventList = () => {
   const fetchEvents = async () => {
     try {
       setLoading(true);
-      // Note: This endpoint doesn't exist yet - add to backend
       const res = await axios.get(`${API_BASE}/events`);
       setEvents(res.data);
       setError(null);
     } catch (err) {
-      console.warn('Events endpoint not available:', err.message);
+      setError('Failed to fetch events. Please try again later.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -70,7 +70,6 @@ const EventList = () => {
 
   const fetchChemicals = async () => {
     try {
-      // Note: This endpoint doesn't exist yet - add to backend
       const res = await axios.get(`${API_BASE}/chemicals`);
       setChemicals(res.data);
     } catch (err) {
