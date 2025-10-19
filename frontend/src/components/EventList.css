@@ -1,0 +1,12 @@
+.event-table-container {
+  overflow-x: auto;
+}
+
+.event-chip {
+  font-weight: 500;
+}
+
+.event-actions {
+  display: flex;
+  gap: 8px;
+}

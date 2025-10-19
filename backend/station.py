@@ -34,4 +34,3 @@ async def poll_loop():
         finally:
             await db.close()
         await asyncio.sleep(POLL_INTERVAL)
-*** End Patch
