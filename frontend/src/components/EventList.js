@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -24,6 +24,8 @@ import {
   Typography,
   Chip,
   Grid,
+  IconButton,
+  TablePagination,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -36,9 +38,11 @@ const EventList = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const [formData, setFormData] = useState({
-    chemical_id: '',
+    chemical: null,
     type: 'continuous',
     lat: '',
     lon: '',
@@ -49,12 +53,7 @@ const EventList = () => {
 
   const [chemicals, setChemicals] = useState([]);
 
-  useEffect(() => {
-    fetchEvents();
-    fetchChemicals();
-  }, []);
-
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       setLoading(true);
       const res = await axios.get(`${API_BASE}/events`);
@@ -62,32 +61,54 @@ const EventList = () => {
       setError(null);
     } catch (err) {
       setError('Failed to fetch events. Please try again later.');
-      console.error(err);
+      console.error('Fetch events error:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchChemicals = async () => {
+  const fetchChemicals = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE}/chemicals`);
       setChemicals(res.data);
     } catch (err) {
-      console.warn('Chemicals endpoint not available:', err.message);
+      console.warn('Chemicals endpoint not fully available:', err.message);
+      // Fallback to some default chemicals
+      setChemicals([
+        { id: 1, name: 'SO2', state: 'gas' },
+        { id: 2, name: 'NO2', state: 'gas' },
+        { id: 3, name: 'PM2.5', state: 'particulate' },
+      ]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchEvents();
+    fetchChemicals();
+  }, [fetchEvents, fetchChemicals]);
 
   const handleAddEvent = async () => {
-    if (!formData.chemical_id || !formData.lat || !formData.lon || !formData.amount) {
+    if (!formData.chemical || !formData.lat || !formData.lon || !formData.amount) {
       setError('Missing required fields');
       return;
     }
 
     try {
       setLoading(true);
-      await axios.post(`${API_BASE}/events`, formData);
+      const eventPayload = {
+        chemical: formData.chemical,
+        type: formData.type,
+        lat: parseFloat(formData.lat),
+        lon: parseFloat(formData.lon),
+        amount: parseFloat(formData.amount),
+        heat: formData.heat ? parseFloat(formData.heat) : 0,
+        terrain: formData.terrain,
+      };
+
+      await axios.post(`${API_BASE}/events`, eventPayload);
+      
       setFormData({
-        chemical_id: '',
+        chemical: null,
         type: 'continuous',
         lat: '',
         lon: '',
@@ -96,10 +117,11 @@ const EventList = () => {
         terrain: '',
       });
       setOpenDialog(false);
-      fetchEvents();
+      await fetchEvents();
       setError(null);
     } catch (err) {
-      setError(`Failed to create event: ${err.message}`);
+      setError(`Failed to create event: ${err.response?.data?.message || err.message}`);
+      console.error('Create event error:', err);
     } finally {
       setLoading(false);
     }
@@ -109,11 +131,21 @@ const EventList = () => {
     if (window.confirm('Delete this event?')) {
       try {
         await axios.delete(`${API_BASE}/events/${id}`);
-        fetchEvents();
+        await fetchEvents();
       } catch (err) {
         setError(`Failed to delete event: ${err.message}`);
+        console.error('Delete event error:', err);
       }
     }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
   };
 
   const getEventTypeColor = (type) => {
@@ -125,8 +157,10 @@ const EventList = () => {
     return colors[type] || 'default';
   };
 
+  const displayedEvents = events.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
   return (
-    <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
+    <Box sx={{ p: 3, maxWidth: 1400, mx: 'auto' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <EventIcon /> Release Events
@@ -150,52 +184,68 @@ const EventList = () => {
         <Card>
           <CardContent>
             {events.length > 0 ? (
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell>Chemical</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Location (Lat, Lon)</TableCell>
-                    <TableCell align="right">Amount (g)</TableCell>
-                    <TableCell>Time</TableCell>
-                    <TableCell align="center">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {events.map((event) => (
-                    <TableRow key={event.id}>
-                      <TableCell>
-                        <strong>{event.chemical?.name || 'Unknown'}</strong>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={event.type}
-                          color={getEventTypeColor(event.type)}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {event.lat?.toFixed(4)}, {event.lon?.toFixed(4)}
-                      </TableCell>
-                      <TableCell align="right">{event.amount?.toFixed(2)}</TableCell>
-                      <TableCell>
-                        {new Date(event.time).toLocaleString()}
-                      </TableCell>
-                      <TableCell align="center">
-                        <Button
-                          size="small"
-                          color="error"
-                          startIcon={<DeleteIcon />}
-                          onClick={() => handleDeleteEvent(event.id)}
-                        >
-                          Delete
-                        </Button>
-                      </TableCell>
+              <>
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell><strong>Chemical</strong></TableCell>
+                      <TableCell><strong>Type</strong></TableCell>
+                      <TableCell align="right"><strong>Location</strong></TableCell>
+                      <TableCell align="right"><strong>Amount (g)</strong></TableCell>
+                      <TableCell><strong>Time</strong></TableCell>
+                      <TableCell align="center"><strong>Actions</strong></TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHead>
+                  <TableBody>
+                    {displayedEvents.map((event) => (
+                      <TableRow key={event.id} hover>
+                        <TableCell>
+                          <strong>{event.chemical?.name || 'Unknown'}</strong>
+                          {event.chemical?.state && (
+                            <Typography variant="caption" display="block" color="textSecondary">
+                              ({event.chemical.state})
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={event.type}
+                            color={getEventTypeColor(event.type)}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          {event.lat?.toFixed(4)}, {event.lon?.toFixed(4)}
+                        </TableCell>
+                        <TableCell align="right">{event.amount?.toFixed(2)}</TableCell>
+                        <TableCell>
+                          {event.time ? new Date(event.time).toLocaleString() : 'N/A'}
+                        </TableCell>
+                        <TableCell align="center">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteEvent(event.id)}
+                            title="Delete event"
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <TablePagination
+                  rowsPerPageOptions={[5, 10, 25, 50]}
+                  component="div"
+                  count={events.length}
+                  rowsPerPage={rowsPerPage}
+                  page={page}
+                  onPageChange={handleChangePage}
+                  onRowsPerPageChange={handleChangeRowsPerPage}
+                />
+              </>
             ) : (
               <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
                 No release events recorded
@@ -212,8 +262,11 @@ const EventList = () => {
           <FormControl fullWidth>
             <InputLabel>Chemical</InputLabel>
             <Select
-              value={formData.chemical_id}
-              onChange={(e) => setFormData({ ...formData, chemical_id: e.target.value })}
+              value={formData.chemical?.id || ''}
+              onChange={(e) => {
+                const selected = chemicals.find(c => c.id === e.target.value);
+                setFormData({ ...formData, chemical: selected });
+              }}
               label="Chemical"
             >
               {chemicals.map((chem) => (
@@ -246,6 +299,7 @@ const EventList = () => {
                 onChange={(e) => setFormData({ ...formData, lat: e.target.value })}
                 fullWidth
                 inputProps={{ min: -90, max: 90, step: 0.0001 }}
+                size="small"
               />
             </Grid>
             <Grid item xs={6}>
@@ -256,6 +310,7 @@ const EventList = () => {
                 onChange={(e) => setFormData({ ...formData, lon: e.target.value })}
                 fullWidth
                 inputProps={{ min: -180, max: 180, step: 0.0001 }}
+                size="small"
               />
             </Grid>
           </Grid>
@@ -267,6 +322,7 @@ const EventList = () => {
             onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
             fullWidth
             inputProps={{ min: 0, step: 0.1 }}
+            size="small"
           />
 
           <TextField
@@ -276,6 +332,7 @@ const EventList = () => {
             onChange={(e) => setFormData({ ...formData, heat: e.target.value })}
             fullWidth
             inputProps={{ min: 0, step: 0.1 }}
+            size="small"
           />
 
           <TextField
@@ -285,6 +342,7 @@ const EventList = () => {
             fullWidth
             multiline
             rows={2}
+            size="small"
           />
         </DialogContent>
         <DialogActions>

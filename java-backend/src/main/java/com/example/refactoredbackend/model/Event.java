@@ -1,22 +1,33 @@
 package com.example.refactoredbackend.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
+@Table(name = "events")
 public class Event {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private Long chemical_id;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "chemical_id", nullable = false)
+    private Chemical chemical;
+
     private String type;
     private double lat;
     private double lon;
     private double amount;
     private double heat;
     private String terrain;
+    
+    @Column(columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     private LocalDateTime time;
+
+    public Event() {
+        this.time = LocalDateTime.now();
+    }
 
     // Getters and setters
     public Long getId() {
@@ -27,12 +38,12 @@ public class Event {
         this.id = id;
     }
 
-    public Long getChemical_id() {
-        return chemical_id;
+    public Chemical getChemical() {
+        return chemical;
     }
 
-    public void setChemical_id(Long chemical_id) {
-        this.chemical_id = chemical_id;
+    public void setChemical(Chemical chemical) {
+        this.chemical = chemical;
     }
 
     public String getType() {

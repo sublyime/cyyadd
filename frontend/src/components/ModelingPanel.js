@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -17,16 +17,18 @@ import {
   Typography,
   Grid,
   Paper,
+  LinearProgress,
 } from '@mui/material';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import ModelTrainIcon from '@mui/icons-material/ModelTraining';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 const STABILITY_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const ModelingPanel = ({ setModelResults, weatherData }) => {
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [gridLoading, setGridLoading] = useState(0);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
 
@@ -36,7 +38,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
     y: 0,
     z: 1.5,
     Q: 10,
-    u: weatherData?.windspeed_10m || 5,
+    u: weatherData?.wind_speed || 5,
     H: 50,
     sy: 10,
     sz: 8,
@@ -57,7 +59,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
     y: 0,
     z: 1.5,
     Q: 100,
-    u: weatherData?.windspeed_10m || 5,
+    u: weatherData?.wind_speed || 5,
     H: 50,
     stability: 'D',
     terrain_height: 0,
@@ -65,64 +67,85 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
     building_height: 0,
   });
 
-  const runModel = async (endpoint, data) => {
+  const runModel = useCallback(async (endpoint, data) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await axios.post(`${API_BASE}${endpoint}`, data, {
-        params: { use_weather: false },
-      });
+      const res = await axios.post(`${API_BASE}${endpoint}`, data);
       setResults({ endpoint, data, result: res.data });
       setModelResults(res.data);
     } catch (err) {
-      setError(`Model error: ${err.response?.data?.detail || err.message}`);
+      const errorMsg = err.response?.data?.message || err.message || 'Model calculation failed';
+      setError(`Model error: ${errorMsg}`);
+      console.error('Model error:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [setModelResults]);
 
-  const generateGrid = async (modelType) => {
+  const generateGrid = useCallback(async (modelType) => {
     try {
-      setLoading(true);
+      setGridLoading(0);
+      setError(null);
       const form = modelType === 'plume' ? plumeForm : modelType === 'puff' ? puffForm : instantForm;
       
-      // Generate a grid of points downwind
-      const gridPoints = [];
       const distances = [50, 100, 200, 300, 500, 1000];
       const offsets = [-50, -25, 0, 25, 50];
-
+      const gridPoints = [];
+      
+      const promises = [];
       for (const x of distances) {
         for (const y of offsets) {
           const point = { ...form, x, y };
           const endpoint = modelType === 'instantaneous' ? '/model/instantaneous' : `/model/${modelType}`;
-          const res = await axios.post(`${API_BASE}${endpoint}`, point, {
-            params: { use_weather: false },
-          });
-          gridPoints.push({
-            x,
-            y,
-            concentration: res.data.concentration,
-          });
+          promises.push(
+            axios.post(`${API_BASE}${endpoint}`, point)
+              .then(res => {
+                gridPoints.push({
+                  x,
+                  y,
+                  concentration: res.data.concentration,
+                });
+                setGridLoading(prev => prev + 1);
+              })
+              .catch(err => {
+                console.error(`Grid point error at (${x}, ${y}):`, err);
+              })
+          );
         }
       }
 
+      await Promise.all(promises);
+
+      if (gridPoints.length === 0) {
+        setError('Failed to generate grid data');
+        return;
+      }
+
+      const maxConc = Math.max(...gridPoints.map((p) => p.concentration));
       setResults({
         type: 'grid',
         modelType,
         gridData: gridPoints,
-        maxConcentration: Math.max(...gridPoints.map((p) => p.concentration)),
+        maxConcentration: maxConc,
       });
       setModelResults({
         grid: gridPoints,
         concentration: gridPoints.map((p) => p.concentration),
-        max_concentration: Math.max(...gridPoints.map((p) => p.concentration)),
-        stability: instantForm.stability,
+        max_concentration: maxConc,
+        stability: modelType === 'instantaneous' ? instantForm.stability : 'N/A',
       });
     } catch (err) {
       setError(`Grid generation error: ${err.message}`);
+      console.error('Grid error:', err);
     } finally {
-      setLoading(false);
+      setGridLoading(0);
     }
+  }, [plumeForm, puffForm, instantForm, setModelResults]);
+
+  const getGridProgress = () => {
+    const total = 6 * 5; // 6 distances x 5 offsets
+    return (gridLoading / total) * 100;
   };
 
   return (
@@ -131,9 +154,15 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
         <ModelTrainIcon /> Dispersion Modeling
       </Typography>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography variant="body2">{error}</Typography>
+      </Alert>}
 
-      <Tabs value={tab} onChange={(e, val) => setTab(val)} sx={{ mb: 3 }}>
+      <Tabs 
+        value={tab} 
+        onChange={(e, val) => setTab(val)} 
+        sx={{ mb: 3, borderBottom: '2px solid #e0e0e0' }}
+      >
         <Tab label="Plume Model" />
         <Tab label="Puff Model" />
         <Tab label="Instantaneous Release" />
@@ -153,6 +182,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.x}
                     onChange={(e) => setPlumeForm({ ...plumeForm, x: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Crosswind Distance (m)"
@@ -160,6 +190,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.y}
                     onChange={(e) => setPlumeForm({ ...plumeForm, y: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Height (m)"
@@ -167,6 +198,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.z}
                     onChange={(e) => setPlumeForm({ ...plumeForm, z: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Emission Rate Q (g/s)"
@@ -174,6 +206,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.Q}
                     onChange={(e) => setPlumeForm({ ...plumeForm, Q: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Wind Speed u (m/s)"
@@ -181,6 +214,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.u}
                     onChange={(e) => setPlumeForm({ ...plumeForm, u: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Stack Height H (m)"
@@ -188,6 +222,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.H}
                     onChange={(e) => setPlumeForm({ ...plumeForm, H: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Lateral Sigma sy (m)"
@@ -195,6 +230,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.sy}
                     onChange={(e) => setPlumeForm({ ...plumeForm, sy: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Vertical Sigma sz (m)"
@@ -202,35 +238,25 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={plumeForm.sz}
                     onChange={(e) => setPlumeForm({ ...plumeForm, sz: parseFloat(e.target.value) })}
                     fullWidth
-                  />
-                  <TextField
-                    label="Terrain Height (m)"
-                    type="number"
-                    value={plumeForm.terrain_height}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, terrain_height: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Building Height (m)"
-                    type="number"
-                    value={plumeForm.building_height}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, building_height: parseFloat(e.target.value) })}
-                    fullWidth
+                    size="small"
                   />
                   <Button
                     variant="contained"
                     onClick={() => runModel('/model/plume', plumeForm)}
                     disabled={loading}
+                    fullWidth
                   >
                     {loading ? <CircularProgress size={24} /> : 'Run Plume Model'}
                   </Button>
                   <Button
                     variant="outlined"
                     onClick={() => generateGrid('plume')}
-                    disabled={loading}
+                    disabled={loading || gridLoading > 0}
+                    fullWidth
                   >
-                    Generate Grid
+                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
                   </Button>
+                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
                 </Box>
               </CardContent>
             </Card>
@@ -241,128 +267,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
               <Card>
                 <CardContent>
                   <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
-                    <Typography variant="body1">
-                      Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
-                    </Typography>
-                  </Paper>
-                </CardContent>
-              </Card>
-            )}
-          </Grid>
-        </Grid>
-      )}
-
-      {/* Instantaneous Release Tab */}
-      {tab === 2 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Instantaneous Release Parameters</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="Downwind Distance (m)"
-                    type="number"
-                    value={instantForm.x}
-                    onChange={(e) => setInstantForm({ ...instantForm, x: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Crosswind Distance (m)"
-                    type="number"
-                    value={instantForm.y}
-                    onChange={(e) => setInstantForm({ ...instantForm, y: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Height (m)"
-                    type="number"
-                    value={instantForm.z}
-                    onChange={(e) => setInstantForm({ ...instantForm, z: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Total Amount Released Q (g)"
-                    type="number"
-                    value={instantForm.Q}
-                    onChange={(e) => setInstantForm({ ...instantForm, Q: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Wind Speed u (m/s)"
-                    type="number"
-                    value={instantForm.u}
-                    onChange={(e) => setInstantForm({ ...instantForm, u: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Stack Height H (m)"
-                    type="number"
-                    value={instantForm.H}
-                    onChange={(e) => setInstantForm({ ...instantForm, H: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <FormControl fullWidth>
-                    <InputLabel>Stability Class</InputLabel>
-                    <Select
-                      value={instantForm.stability}
-                      onChange={(e) => setInstantForm({ ...instantForm, stability: e.target.value })}
-                      label="Stability Class"
-                    >
-                      {STABILITY_CLASSES.map((cls) => (
-                        <MenuItem key={cls} value={cls}>
-                          {cls} - {
-                            cls === 'A' ? 'Very Unstable' :
-                            cls === 'B' ? 'Unstable' :
-                            cls === 'C' ? 'Slightly Unstable' :
-                            cls === 'D' ? 'Neutral' :
-                            cls === 'E' ? 'Slightly Stable' :
-                            'Stable'
-                          }
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <TextField
-                    label="Terrain Height (m)"
-                    type="number"
-                    value={instantForm.terrain_height}
-                    onChange={(e) => setInstantForm({ ...instantForm, terrain_height: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Building Height (m)"
-                    type="number"
-                    value={instantForm.building_height}
-                    onChange={(e) => setInstantForm({ ...instantForm, building_height: parseFloat(e.target.value) })}
-                    fullWidth
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={() => runModel('/model/instantaneous', instantForm)}
-                    disabled={loading}
-                  >
-                    {loading ? <CircularProgress size={24} /> : 'Run Instantaneous Model'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => generateGrid('instantaneous')}
-                    disabled={loading}
-                  >
-                    Generate Grid
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={8}>
-            {results && results.type !== 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
+                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
                     <Typography variant="body1">
                       Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
                     </Typography>
@@ -374,9 +279,9 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
             {results && results.type === 'grid' && (
               <Card>
                 <CardContent>
-                  <Typography variant="h6">Grid Results</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Max Concentration: {results.maxConcentration.toFixed(4)} µg/m³
+                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
                   </Typography>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={results.gridData.slice(0, 20)}>
@@ -408,6 +313,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.x}
                     onChange={(e) => setPuffForm({ ...puffForm, x: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Crosswind Distance (m)"
@@ -415,6 +321,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.y}
                     onChange={(e) => setPuffForm({ ...puffForm, y: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Height (m)"
@@ -422,6 +329,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.z}
                     onChange={(e) => setPuffForm({ ...puffForm, z: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Emission Rate Q (g/s)"
@@ -429,6 +337,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.Q}
                     onChange={(e) => setPuffForm({ ...puffForm, Q: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Wind Speed u (m/s)"
@@ -436,6 +345,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.u}
                     onChange={(e) => setPuffForm({ ...puffForm, u: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Stack Height H (m)"
@@ -443,6 +353,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.H}
                     onChange={(e) => setPuffForm({ ...puffForm, H: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Time Since Release (s)"
@@ -450,6 +361,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.t}
                     onChange={(e) => setPuffForm({ ...puffForm, t: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Lateral Sigma sy (m)"
@@ -457,6 +369,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.sy}
                     onChange={(e) => setPuffForm({ ...puffForm, sy: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <TextField
                     label="Vertical Sigma sz (m)"
@@ -464,14 +377,25 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                     value={puffForm.sz}
                     onChange={(e) => setPuffForm({ ...puffForm, sz: parseFloat(e.target.value) })}
                     fullWidth
+                    size="small"
                   />
                   <Button
                     variant="contained"
                     onClick={() => runModel('/model/puff', puffForm)}
                     disabled={loading}
+                    fullWidth
                   >
                     {loading ? <CircularProgress size={24} /> : 'Run Puff Model'}
                   </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => generateGrid('puff')}
+                    disabled={loading || gridLoading > 0}
+                    fullWidth
+                  >
+                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
+                  </Button>
+                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
                 </Box>
               </CardContent>
             </Card>
@@ -482,7 +406,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
               <Card>
                 <CardContent>
                   <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
+                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
                     <Typography variant="body1">
                       Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
                     </Typography>
@@ -494,9 +418,9 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
             {results && results.type === 'grid' && (
               <Card>
                 <CardContent>
-                  <Typography variant="h6">Grid Results</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Max Concentration: {results.maxConcentration.toFixed(4)} µg/m³
+                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
                   </Typography>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={results.gridData.slice(0, 20)}>
@@ -504,7 +428,143 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
                       <XAxis dataKey="x" />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="concentration" fill="#8884d8" />
+                      <Bar dataKey="concentration" fill="#82ca9d" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Instantaneous Release Tab */}
+      {tab === 2 && (
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Instantaneous Release Parameters</Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <TextField
+                    label="Downwind Distance (m)"
+                    type="number"
+                    value={instantForm.x}
+                    onChange={(e) => setInstantForm({ ...instantForm, x: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Crosswind Distance (m)"
+                    type="number"
+                    value={instantForm.y}
+                    onChange={(e) => setInstantForm({ ...instantForm, y: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Height (m)"
+                    type="number"
+                    value={instantForm.z}
+                    onChange={(e) => setInstantForm({ ...instantForm, z: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Total Amount Released Q (g)"
+                    type="number"
+                    value={instantForm.Q}
+                    onChange={(e) => setInstantForm({ ...instantForm, Q: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Wind Speed u (m/s)"
+                    type="number"
+                    value={instantForm.u}
+                    onChange={(e) => setInstantForm({ ...instantForm, u: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Stack Height H (m)"
+                    type="number"
+                    value={instantForm.H}
+                    onChange={(e) => setInstantForm({ ...instantForm, H: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                  />
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Stability Class</InputLabel>
+                    <Select
+                      value={instantForm.stability}
+                      onChange={(e) => setInstantForm({ ...instantForm, stability: e.target.value })}
+                      label="Stability Class"
+                    >
+                      {STABILITY_CLASSES.map((cls) => (
+                        <MenuItem key={cls} value={cls}>
+                          {cls} - {
+                            cls === 'A' ? 'Very Unstable' :
+                            cls === 'B' ? 'Unstable' :
+                            cls === 'C' ? 'Slightly Unstable' :
+                            cls === 'D' ? 'Neutral' :
+                            cls === 'E' ? 'Slightly Stable' :
+                            'Stable'
+                          }
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="contained"
+                    onClick={() => runModel('/model/instantaneous', instantForm)}
+                    disabled={loading}
+                    fullWidth
+                  >
+                    {loading ? <CircularProgress size={24} /> : 'Run Instantaneous Model'}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => generateGrid('instantaneous')}
+                    disabled={loading || gridLoading > 0}
+                    fullWidth
+                  >
+                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
+                  </Button>
+                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={8}>
+            {results && results.type !== 'grid' && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6">Result</Typography>
+                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
+                    <Typography variant="body1">
+                      Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
+                    </Typography>
+                  </Paper>
+                </CardContent>
+              </Card>
+            )}
+
+            {results && results.type === 'grid' && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
+                  </Typography>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={results.gridData.slice(0, 20)}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="x" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="concentration" fill="#ffc658" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
