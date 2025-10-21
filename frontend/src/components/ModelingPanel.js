@@ -19,7 +19,7 @@ import {
   Paper,
   LinearProgress,
 } from '@mui/material';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ModelTrainIcon from '@mui/icons-material/ModelTraining';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
@@ -71,8 +71,19 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await axios.post(`${API_BASE}${endpoint}`, data);
-      setResults({ endpoint, data, result: res.data });
+      console.log('Sending model request:', { endpoint, data });
+      const requestData = {
+        ...data,
+        wind_speed: weatherData?.wind_speed || data.u,
+        wind_direction: weatherData?.wind_direction || 0,
+        temperature: weatherData?.temperature || 20,
+        stability_class: data.stability,
+        release_height: data.H,
+        source_strength: data.Q
+      };
+      const res = await axios.post(`${API_BASE}${endpoint}`, requestData);
+      console.log('Model response:', res.data);
+      setResults({ endpoint, data: requestData, result: res.data });
       setModelResults(res.data);
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.message || 'Model calculation failed';
@@ -81,7 +92,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
     } finally {
       setLoading(false);
     }
-  }, [setModelResults]);
+  }, [setModelResults, weatherData]);
 
   const generateGrid = useCallback(async (modelType) => {
     try {

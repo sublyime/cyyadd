@@ -1,17 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Wind, Thermometer, Droplets, Gauge, Activity, AlertTriangle, TrendingUp, MapPin } from 'lucide-react';
+import axios from 'axios';
+import { Wind, Thermometer, Droplets, Gauge, Activity, TrendingUp } from 'lucide-react';
+import MapView from './MapView';
+import WeatherDisplay from './WeatherDisplay';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Select, MenuItem, FormControl, InputLabel, Typography } from '@mui/material';
 
-const EnhancedDispersionDashboard = () => {
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+
+const calculateStabilityClass = (temperature, windSpeed, cloudCover) => {
+  // Simple stability class determination based on wind speed and cloud cover
+  if (windSpeed < 2) return 'F';  // Very stable
+  if (windSpeed < 3) return 'E';  // Stable
+  if (windSpeed < 5) return 'D';  // Neutral
+  if (windSpeed < 6) return 'C';  // Slightly unstable
+  if (windSpeed < 8) return 'B';  // Unstable
+  return 'A';  // Very unstable
+};
+
+const ModelingDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [weatherData, setWeatherData] = useState({
-    wind_speed: 5.2,
-    wind_direction: 145,
-    temperature: 18.5,
-    humidity: 65,
-    pressure: 1013.25
-  });
+  const [showEventDialog, setShowEventDialog] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [weatherData, setWeatherData] = useState(null);
   const [modelResults, setModelResults] = useState(null);
-  const [events, setEvents] = useState([
+  const [events] = useState([
     { id: 1, chemical: 'SO2', type: 'continuous', lat: 39.8283, lon: -98.5795, amount: 150.5, time: new Date() },
     { id: 2, chemical: 'NO2', type: 'instantaneous', lat: 39.9283, lon: -98.6795, amount: 85.2, time: new Date() }
   ]);
@@ -26,18 +38,54 @@ const EnhancedDispersionDashboard = () => {
   }, []);
 
   const pulseOpacity = 0.5 + Math.sin(animationFrame / 10) * 0.3;
-  const glowIntensity = 0.3 + Math.sin(animationFrame / 15) * 0.2;
 
-  const runSimulation = () => {
-    const concentration = Math.random() * 100;
-    setModelResults({
-      max_concentration: concentration,
-      stability: 'D - Neutral',
-      points: 30,
-      timestamp: new Date().toLocaleTimeString()
+  const handleMapClick = (latlng) => {
+    console.log('ModelingDashboard: Map clicked at', latlng);
+    
+    // Update location
+    setSelectedLocation({
+      lat: latlng.lat,
+      lng: latlng.lng
     });
     
-    addNotification('Simulation completed successfully', 'success');
+    // Set weather data for the clicked location
+    const defaultWeather = {
+      wind_speed: 2.9,          // mph
+      wind_direction: 270,      // degrees (W)
+      temperature: 83.1,        // °F
+      humidity: 79.9,           // %
+      pressure: 30.06,          // inHg
+      stability_class: '1/2',   // From image
+      location: {
+        lat: latlng.lat.toFixed(4),
+        lng: latlng.lng.toFixed(4)
+      }
+    };
+    
+    console.log('ModelingDashboard: Setting weather data', defaultWeather);
+    setWeatherData(defaultWeather);
+    setShowEventDialog(true);
+  };
+
+  const runSimulation = async () => {
+    if (!selectedLocation || !weatherData) {
+      addNotification('Please select a location and weather data first', 'error');
+      return;
+    }
+
+    try {
+      const response = await axios.post(`${API_BASE}/model/run`, {
+        lat: selectedLocation.lat,
+        lon: selectedLocation.lng,
+        weather: weatherData,
+        // Add other necessary parameters here
+      });
+      
+      setModelResults(response.data);
+      addNotification('Simulation completed successfully', 'success');
+    } catch (err) {
+      addNotification('Failed to run simulation: ' + err.message, 'error');
+    }
   };
 
   const addNotification = (message, type = 'info') => {
@@ -58,7 +106,19 @@ const EnhancedDispersionDashboard = () => {
       flexDirection: 'column',
       overflow: 'hidden'
     }}>
+      {/* Weather Display */}
+      <WeatherDisplay weatherData={weatherData} />
+
       {/* Notifications */}
+      <div style={{ flex: 1, position: 'relative' }}>
+        <MapView
+          weatherData={weatherData}
+          modelResults={modelResults}
+          onMapClick={handleMapClick}
+          showEventDialog={showEventDialog}
+        />
+      </div>
+
       <div style={{
         position: 'fixed',
         top: 20,
@@ -68,6 +128,44 @@ const EnhancedDispersionDashboard = () => {
         flexDirection: 'column',
         gap: 10
       }}>
+        {/* Event Dialog */}
+        <Dialog open={showEventDialog} onClose={() => setShowEventDialog(false)}>
+          <DialogTitle>New Dispersion Event</DialogTitle>
+          <DialogContent>
+            <TextField
+              label="Name"
+              fullWidth
+              margin="normal"
+            />
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Chemical</InputLabel>
+              <Select value="" onChange={(e) => {}}>
+                <MenuItem value="SO2">Sulfur Dioxide (SO2)</MenuItem>
+                <MenuItem value="NO2">Nitrogen Dioxide (NO2)</MenuItem>
+                <MenuItem value="CO">Carbon Monoxide (CO)</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Amount (kg)"
+              type="number"
+              fullWidth
+              margin="normal"
+            />
+            {weatherData && (
+              <div style={{ marginTop: 16 }}>
+                <Typography variant="subtitle1">Weather Conditions:</Typography>
+                <Typography>Wind Speed: {weatherData.wind_speed} m/s</Typography>
+                <Typography>Wind Direction: {weatherData.wind_direction}°</Typography>
+                <Typography>Temperature: {weatherData.temperature}°C</Typography>
+              </div>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowEventDialog(false)}>Cancel</Button>
+            <Button onClick={runSimulation} color="primary">Run Simulation</Button>
+          </DialogActions>
+        </Dialog>
+
         {notifications.map(notif => (
           <div key={notif.id} style={{
             background: notif.type === 'success' ? '#10b981' : notif.type === 'error' ? '#ef4444' : '#3b82f6',
@@ -762,4 +860,4 @@ const EnhancedDispersionDashboard = () => {
   );
 };
 
-export default EnhancedDispersionDashboard;
+export default ModelingDashboard;

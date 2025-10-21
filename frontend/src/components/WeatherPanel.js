@@ -34,6 +34,13 @@ const WeatherPanel = ({ setWeatherData }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [weather, setWeather] = useState(null);
+  const [selectedService, setSelectedService] = useState('open-meteo');
+
+  // Add service selection handler
+  const handleServiceChange = (event) => {
+    setSelectedService(event.target.value);
+    fetchStations(); // Refresh stations when service changes
+  };
 
   // Form state for new station
   const [formData, setFormData] = useState({
@@ -47,8 +54,10 @@ const WeatherPanel = ({ setWeatherData }) => {
   const fetchStations = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${API_BASE}/stations`);
-      setStations(res.data);
+      const res = await axios.get(`${API_BASE}/stations`, {
+        params: { provider: selectedService }
+      });
+      setStations(res.data.filter(station => station.provider === selectedService));
       setError(null);
     } catch (err) {
       setError(`Failed to fetch stations: ${err.message}`);
@@ -56,7 +65,7 @@ const WeatherPanel = ({ setWeatherData }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedService]);
 
   const fetchLatestWeather = useCallback(async () => {
     try {
@@ -149,6 +158,30 @@ const WeatherPanel = ({ setWeatherData }) => {
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Card elevation={3} sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Weather Service Provider
+          </Typography>
+          <RadioGroup
+            row
+            value={selectedService}
+            onChange={handleServiceChange}
+          >
+            <FormControlLabel
+              value="open-meteo"
+              control={<Radio />}
+              label="Open-Meteo"
+            />
+            <FormControlLabel
+              value="noaa"
+              control={<Radio />}
+              label="NOAA"
+            />
+          </RadioGroup>
+        </CardContent>
+      </Card>
 
       <Tabs value={tab} onChange={(e, val) => setTab(val)} sx={{ mb: 3, borderBottom: '2px solid #e0e0e0' }}>
         <Tab label="Current Weather" />
