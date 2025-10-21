@@ -1,13 +1,6 @@
+com\example\refactoredbackend\controller\DataController.class
 com\example\refactoredbackend\repository\PlumeRepository.class
 com\example\refactoredbackend\model\Chemical.class
 com\example\refactoredbackend\repository\StationRepository.class
-com\example\refactoredbackend\service\DataService.class
-com\example\refactoredbackend\repository\ChemicalRepository.class
-com\example\refactoredbackend\model\Station.class
-com\example\refactoredbackend\repository\WeatherRepository.class
-com\example\refactoredbackend\RefactoredBackendApplication.class
-com\example\refactoredbackend\controller\DataController.class
-com\example\refactoredbackend\model\Event.class
-com\example\refactoredbackend\repository\EventRepository.class
 com\example\refactoredbackend\model\Plume.class
-com\example\refactoredbackend\model\Weather.class
+com\example\refactoredbackend\model\Station.class
