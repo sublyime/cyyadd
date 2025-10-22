@@ -28,7 +28,7 @@ import './WeatherPanel.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
-const WeatherPanel = ({ setWeatherData }) => {
+const WeatherPanel = ({ selectedLocation }) => {
   const [tab, setTab] = useState(0);
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -36,13 +36,11 @@ const WeatherPanel = ({ setWeatherData }) => {
   const [weather, setWeather] = useState(null);
   const [selectedService, setSelectedService] = useState('open-meteo');
 
-  // Add service selection handler
   const handleServiceChange = (event) => {
     setSelectedService(event.target.value);
-    fetchStations(); // Refresh stations when service changes
+    fetchStations(); 
   };
 
-  // Form state for new station
   const [formData, setFormData] = useState({
     name: '',
     lat: '',
@@ -50,7 +48,6 @@ const WeatherPanel = ({ setWeatherData }) => {
     provider: 'open-meteo',
   });
 
-  // Fetch stations and latest weather on mount
   const fetchStations = useCallback(async () => {
     try {
       setLoading(true);
@@ -71,22 +68,12 @@ const WeatherPanel = ({ setWeatherData }) => {
     try {
       const res = await axios.get(`${API_BASE}/weather/latest`);
       setWeather(res.data);
-      if (res.data?.data) {
-        setWeatherData(res.data.data);
-      }
     } catch (err) {
       console.warn('No weather data available yet:', err.message);
     }
-  }, [setWeatherData]);
+  }, []);
 
-  useEffect(() => {
-    fetchStations();
-    fetchLatestWeather();
-    const interval = setInterval(fetchLatestWeather, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, [fetchStations, fetchLatestWeather]);
-
-  const fetchWeatherByCoords = async (lat, lon, provider) => {
+  const fetchWeatherByCoords = useCallback(async (lat, lon, provider) => {
     try {
       setLoading(true);
       const endpoint = provider === 'noaa' ? '/weather/noaa' : '/weather/open-meteo';
@@ -94,7 +81,6 @@ const WeatherPanel = ({ setWeatherData }) => {
         params: { lat, lon },
       });
       
-      // Store in database
       try {
         await axios.post(`${API_BASE}/weather/store`, res.data);
       } catch (storeErr) {
@@ -102,7 +88,6 @@ const WeatherPanel = ({ setWeatherData }) => {
       }
       
       setWeather({ timestamp: new Date().toISOString(), data: res.data });
-      setWeatherData(res.data);
       setError(null);
     } catch (err) {
       setError(`Failed to fetch weather: ${err.message}`);
@@ -110,7 +95,18 @@ const WeatherPanel = ({ setWeatherData }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (selectedLocation) {
+      fetchWeatherByCoords(selectedLocation.lat, selectedLocation.lng, selectedService);
+    } else {
+      fetchStations();
+      fetchLatestWeather();
+      const interval = setInterval(fetchLatestWeather, 60000); // Update every minute
+      return () => clearInterval(interval);
+    }
+  }, [selectedLocation, selectedService, fetchStations, fetchLatestWeather, fetchWeatherByCoords]);
 
   const handleAddStation = async (e) => {
     e.preventDefault();
@@ -189,7 +185,6 @@ const WeatherPanel = ({ setWeatherData }) => {
         <Tab label="Add Station" />
       </Tabs>
 
-      {/* Current Weather Tab */}
       {tab === 0 && (
         <Card>
           <CardContent>
@@ -224,7 +219,6 @@ const WeatherPanel = ({ setWeatherData }) => {
         </Card>
       )}
 
-      {/* Stations Tab */}
       {tab === 1 && (
         <Card>
           <CardContent>
@@ -278,7 +272,6 @@ const WeatherPanel = ({ setWeatherData }) => {
         </Card>
       )}
 
-      {/* Add Station Tab */}
       {tab === 2 && (
         <Card>
           <CardContent>
