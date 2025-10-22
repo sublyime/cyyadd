@@ -1,14 +1,18 @@
 package com.example.refactoredbackend.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
+@Table(name = "plume")
 public class Plume {
 
     @Id
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "plume_id_seq")
+    @SequenceGenerator(name = "plume_id_seq", sequenceName = "plume_id_seq", allocationSize = 1)
+    @Column(nullable = false)
+    private Long id;
+    private LocalDateTime time;
     private LocalDateTime time_obs;
     private double so2_ppb;
     private double so2_error_ppb;
@@ -17,18 +21,29 @@ public class Plume {
     private double wind_speed_ms;
     private double wind_dir_error_deg;
     private double wind_speed_error_ms;
-    private String station_id;
     private String species;
     private LocalDateTime time_forecast;
     private double so2_ppb_forecast;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "station_id")
+    private Station station;
+
     // Getters and setters
-    public Integer getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(Integer id) {
+    public void setId(Long id) {
         this.id = id;
+    }
+
+    public LocalDateTime getTime() {
+        return time;
+    }
+
+    public void setTime(LocalDateTime time) {
+        this.time = time;
     }
 
     public LocalDateTime getTime_obs() {
@@ -95,12 +110,12 @@ public class Plume {
         this.wind_speed_error_ms = wind_speed_error_ms;
     }
 
-    public String getStation_id() {
-        return station_id;
+    public Station getStation() {
+        return station;
     }
 
-    public void setStation_id(String station_id) {
-        this.station_id = station_id;
+    public void setStation(Station station) {
+        this.station = station;
     }
 
     public String getSpecies() {
