@@ -45,6 +45,28 @@ public class DataService {
         return plumeRepository.findAll();
     }
 
+    public Plume createPlume(Plume plume) {
+        if (plume.getTime() == null) {
+            plume.setTime(LocalDateTime.now());
+        }
+        return plumeRepository.save(plume);
+    }
+
+    public Optional<Plume> getPlume(Long id) {
+        return plumeRepository.findById(id);
+    }
+
+    public Plume updatePlume(Plume plume) {
+        if (!plumeRepository.existsById(plume.getId())) {
+            throw new RuntimeException("Plume not found with id: " + plume.getId());
+        }
+        return plumeRepository.save(plume);
+    }
+
+    public void deletePlume(Long id) {
+        plumeRepository.deleteById(id);
+    }
+
     // Weather Operations
     public List<Weather> getAllWeather() {
         return weatherRepository.findAll();

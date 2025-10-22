@@ -15,6 +15,8 @@ public class Event {
     @JoinColumn(name = "chemical_id", nullable = false)
     private Chemical chemical;
 
+    private String name;
+    private String description;
     private String type;
     private double lat;
     private double lon;
@@ -44,6 +46,22 @@ public class Event {
 
     public void setChemical(Chemical chemical) {
         this.chemical = chemical;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public String getType() {

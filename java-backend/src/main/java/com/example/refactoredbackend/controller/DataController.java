@@ -97,6 +97,34 @@ public class DataController {
         return ResponseEntity.ok(dataService.getAllPlumes());
     }
 
+    @PostMapping("/plumes")
+    public ResponseEntity<Plume> createPlume(@RequestBody Plume plume) {
+        Plume createdPlume = dataService.createPlume(plume);
+        return ResponseEntity.ok(createdPlume);
+    }
+
+    @GetMapping("/plumes/{id}")
+    public ResponseEntity<Plume> getPlume(@PathVariable Long id) {
+        return dataService.getPlume(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/plumes/{id}")
+    public ResponseEntity<Plume> updatePlume(
+            @PathVariable Long id,
+            @RequestBody Plume plume) {
+        plume.setId(id);
+        Plume updatedPlume = dataService.updatePlume(plume);
+        return ResponseEntity.ok(updatedPlume);
+    }
+
+    @DeleteMapping("/plumes/{id}")
+    public ResponseEntity<Void> deletePlume(@PathVariable Long id) {
+        dataService.deletePlume(id);
+        return ResponseEntity.noContent().build();
+    }
+
     // ============ WEATHER ============
     @GetMapping("/weather")
     public ResponseEntity<List<Weather>> getAllWeather() {

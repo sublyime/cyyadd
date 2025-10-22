@@ -134,25 +134,35 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
       }
 
       const maxConc = Math.max(...gridPoints.map((p) => p.concentration));
+      const modelOutput = {
+        type: modelType,
+        grid: gridPoints,
+        concentration: gridPoints.map((p) => p.concentration),
+        max_concentration: maxConc,
+        stability: modelType === 'instantaneous' ? instantForm.stability : 'N/A',
+        metadata: {
+          wind_speed: weatherData?.wind_speed,
+          wind_direction: weatherData?.wind_direction,
+          temperature: weatherData?.temperature,
+          stability_class: modelType === 'instantaneous' ? instantForm.stability : 'D',
+          release_height: form.H,
+          source_strength: form.Q
+        }
+      };
       setResults({
         type: 'grid',
         modelType,
         gridData: gridPoints,
         maxConcentration: maxConc,
       });
-      setModelResults({
-        grid: gridPoints,
-        concentration: gridPoints.map((p) => p.concentration),
-        max_concentration: maxConc,
-        stability: modelType === 'instantaneous' ? instantForm.stability : 'N/A',
-      });
+      setModelResults(modelOutput);
     } catch (err) {
       setError(`Grid generation error: ${err.message}`);
       console.error('Grid error:', err);
     } finally {
       setGridLoading(0);
     }
-  }, [plumeForm, puffForm, instantForm, setModelResults]);
+  }, [plumeForm, puffForm, instantForm, setModelResults, weatherData]);
 
   const getGridProgress = () => {
     const total = 6 * 5; // 6 distances x 5 offsets
@@ -160,7 +170,7 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
   };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1400, mx: 'auto' }}>
+    <Box sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <ModelTrainIcon /> Dispersion Modeling
       </Typography>
@@ -169,15 +179,33 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
         <Typography variant="body2">{error}</Typography>
       </Alert>}
 
-      <Tabs 
-        value={tab} 
-        onChange={(e, val) => setTab(val)} 
-        sx={{ mb: 3, borderBottom: '2px solid #e0e0e0' }}
-      >
-        <Tab label="Plume Model" />
-        <Tab label="Puff Model" />
-        <Tab label="Instantaneous Release" />
-      </Tabs>
+      <Paper sx={{ mb: 2 }}>
+        <Tabs 
+          value={tab} 
+          onChange={(e, val) => setTab(val)} 
+          sx={{ borderBottom: '1px solid #e0e0e0' }}
+          variant="fullWidth"
+        >
+          <Tab label="Plume Model" />
+          <Tab label="Puff Model" />
+          <Tab label="Instantaneous Release" />
+        </Tabs>
+      </Paper>
+
+      {/* Model Status */}
+      {(loading || gridLoading > 0) && (
+        <Box sx={{ width: '100%', mb: 2 }}>
+          {loading && <LinearProgress />}
+          {gridLoading > 0 && (
+            <>
+              <Typography variant="body2" color="text.secondary" align="center" gutterBottom>
+                Calculating grid points... {Math.round(getGridProgress())}%
+              </Typography>
+              <LinearProgress variant="determinate" value={getGridProgress()} />
+            </>
+          )}
+        </Box>
+      )}
 
       {/* Plume Model Tab */}
       {tab === 0 && (

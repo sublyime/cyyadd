@@ -1,29 +1,36 @@
 package com.example.refactoredbackend.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
+@Table(name = "weather")
 public class Weather {
 
     @Id
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
     private LocalDateTime time;
+    
     private double wind_speed;
     private double wind_direction;
     private double temperature;
     private double humidity;
     private double pressure;
     private double precipitation;
-    private String station_id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "station_id")
+    private Station station;
 
     // Getters and setters
-    public Integer getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(Integer id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
@@ -83,11 +90,11 @@ public class Weather {
         this.precipitation = precipitation;
     }
 
-    public String getStation_id() {
-        return station_id;
+    public Station getStation() {
+        return station;
     }
 
-    public void setStation_id(String station_id) {
-        this.station_id = station_id;
+    public void setStation(Station station) {
+        this.station = station;
     }
 }
