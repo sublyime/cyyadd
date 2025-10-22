@@ -77,11 +77,9 @@ public class DataController {
     }
 
     @PostMapping("/chemicals")
-    public ResponseEntity<Chemical> createChemical(
-            @RequestParam String name,
-            @RequestParam String state) {
-        Chemical chemical = dataService.createChemical(name, state);
-        return ResponseEntity.ok(chemical);
+    public ResponseEntity<Chemical> createChemical(@RequestBody Chemical chemical) {
+        Chemical createdChemical = dataService.createChemical(chemical);
+        return ResponseEntity.ok(createdChemical);
     }
 
     @DeleteMapping("/chemicals/{id}")

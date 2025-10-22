@@ -97,8 +97,7 @@ public class DataService {
         return chemicalRepository.findAll();
     }
 
-    public Chemical createChemical(String name, String state) {
-        Chemical chemical = new Chemical(name, state);
+    public Chemical createChemical(Chemical chemical) {
         return chemicalRepository.save(chemical);
     }
 

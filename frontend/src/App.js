@@ -53,11 +53,17 @@ function App() {
         />
         <Route 
           path="weather" 
-          element={<WeatherPanel setWeatherData={setWeatherData} />}
+          element={<WeatherPanel selectedLocation={selectedLocation} />}
         />
         <Route 
           path="modeling" 
-          element={<ModelingPanel setModelResults={setModelResults} />}
+          element={
+            <ModelingPanel 
+              setModelResults={setModelResults} 
+              selectedLocation={selectedLocation}
+              weatherData={weatherData}
+            />
+          }
         />
       </Route>
     ),
@@ -69,7 +75,6 @@ function App() {
     }
   );
 
-  return <RouterProvider router={router} />;
-}
+  return <RouterProvider router={router} />;}
 
 export default App;

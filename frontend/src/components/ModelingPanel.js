@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -30,24 +30,31 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
-  const [chemicals, setChemicals] = useState([
-    { id: 1, name: 'SO2', state: 'gas', molecular_weight: 64.07 },
-    { id: 2, name: 'NO2', state: 'gas', molecular_weight: 46.01 },
-    { id: 3, name: 'CO', state: 'gas', molecular_weight: 28.01 },
-    { id: 4, name: 'NH3', state: 'gas', molecular_weight: 17.03 },
-    { id: 5, name: 'H2S', state: 'gas', molecular_weight: 34.08 },
-    { id: 6, name: 'Cl2', state: 'gas', molecular_weight: 70.90 },
-  ]);
-  const [selectedChemical, setSelectedChemical] = useState(chemicals[0]);
+  const [chemicals, setChemicals] = useState([]);
+  const [selectedChemical, setSelectedChemical] = useState('');
 
-  // Plume model state
+  useEffect(() => {
+    const fetchChemicals = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/chemicals`);
+        setChemicals(res.data);
+        if (res.data.length > 0) {
+          setSelectedChemical(res.data[0].id);
+        }
+      } catch (err) {
+        setError('Failed to fetch chemicals');
+        console.error('Fetch chemicals error:', err);
+      }
+    };
+    fetchChemicals();
+  }, []);
+
   const [plumeForm, setPlumeForm] = useState({
     Q: 10,
     release_height: 50,
     z: 1.5,
   });
 
-  // Puff model state
   const [puffForm, setPuffForm] = useState({
     Q: 10,
     release_height: 50,
@@ -55,7 +62,6 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
     t: 60,
   });
 
-  // Instantaneous model state
   const [instantForm, setInstantForm] = useState({
     Q: 100,
     release_height: 50,
@@ -69,6 +75,10 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
     if (!weatherData) {
       throw new Error('Weather data not available for selected location');
     }
+    const chemical = chemicals.find(c => c.id === selectedChemical);
+    if (!chemical) {
+      throw new Error('Please select a chemical');
+    }
 
     const params = {
       ...formData,
@@ -80,8 +90,8 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
       humidity: weatherData.humidity,
       pressure: weatherData.pressure,
       stability_class: weatherData.stability_class,
-      molecular_weight: selectedChemical.molecular_weight,
-      chemical_name: selectedChemical.name,
+      molecular_weight: chemical.molecular_weight,
+      chemical_name: chemical.name,
       model_type: modelType
     };
 
@@ -127,7 +137,7 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
     } finally {
       setLoading(false);
     }
-  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical]);
+  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical, chemicals]);
 
   const generateGrid = useCallback(async (modelType) => {
     try {
@@ -164,7 +174,7 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
     } finally {
       setLoading(false);
     }
-  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical, setModelResults]);
+  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical, chemicals, setModelResults]);
 
   const renderLocationInfo = () => {
     if (!selectedLocation) {
@@ -208,6 +218,7 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
 
   const renderModelForm = (formData, setFormData, modelType) => {
     const isDisabled = !selectedLocation || !weatherData || loading;
+    const chemical = chemicals.find(c => c.id === selectedChemical);
 
     return (
       <Grid container spacing={3}>
@@ -222,11 +233,8 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
                 <FormControl fullWidth size="small">
                   <InputLabel>Chemical</InputLabel>
                   <Select
-                    value={selectedChemical.id}
-                    onChange={(e) => {
-                      const chem = chemicals.find(c => c.id === e.target.value);
-                      setSelectedChemical(chem);
-                    }}
+                    value={selectedChemical}
+                    onChange={(e) => setSelectedChemical(e.target.value)}
                     label="Chemical"
                   >
                     {chemicals.map((chem) => (
@@ -317,7 +325,7 @@ const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
                     Model: {results.result.model_type} | Stability: Class {results.result.stability_class}
                   </Typography>
                   <Typography variant="body2">
-                    Chemical: {selectedChemical.name} (MW: {selectedChemical.molecular_weight})
+                    Chemical: {chemical?.name} (MW: {chemical?.molecular_weight})
                   </Typography>
                 </Paper>
               </CardContent>
