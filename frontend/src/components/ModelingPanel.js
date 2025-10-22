@@ -19,154 +19,347 @@ import {
   Paper,
   LinearProgress,
 } from '@mui/material';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ModelTrainIcon from '@mui/icons-material/ModelTraining';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 const STABILITY_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-const ModelingPanel = ({ setModelResults, weatherData }) => {
+const ModelingPanel = ({ setModelResults, weatherData, selectedLocation }) => {
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [gridLoading, setGridLoading] = useState(0);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
+  const [chemicals, setChemicals] = useState([
+    { id: 1, name: 'SO2', state: 'gas', molecular_weight: 64.07 },
+    { id: 2, name: 'NO2', state: 'gas', molecular_weight: 46.01 },
+    { id: 3, name: 'CO', state: 'gas', molecular_weight: 28.01 },
+    { id: 4, name: 'NH3', state: 'gas', molecular_weight: 17.03 },
+    { id: 5, name: 'H2S', state: 'gas', molecular_weight: 34.08 },
+    { id: 6, name: 'Cl2', state: 'gas', molecular_weight: 70.90 },
+  ]);
+  const [selectedChemical, setSelectedChemical] = useState(chemicals[0]);
 
   // Plume model state
   const [plumeForm, setPlumeForm] = useState({
-    x: 100,
-    y: 0,
-    z: 1.5,
     Q: 10,
-    u: weatherData?.wind_speed || 5,
-    H: 50,
-    sy: 10,
-    sz: 8,
-    terrain_height: 0,
-    terrain_gradient: 0,
-    building_height: 0,
+    release_height: 50,
+    z: 1.5,
   });
 
   // Puff model state
   const [puffForm, setPuffForm] = useState({
-    ...plumeForm,
+    Q: 10,
+    release_height: 50,
+    z: 1.5,
     t: 60,
   });
 
   // Instantaneous model state
   const [instantForm, setInstantForm] = useState({
-    x: 100,
-    y: 0,
-    z: 1.5,
     Q: 100,
-    u: weatherData?.wind_speed || 5,
-    H: 50,
-    stability: 'D',
-    terrain_height: 0,
-    terrain_gradient: 0,
-    building_height: 0,
+    release_height: 50,
+    z: 1.5,
   });
 
-  const runModel = useCallback(async (endpoint, data) => {
+  const buildModelParams = (formData, modelType) => {
+    if (!selectedLocation) {
+      throw new Error('Please select a location on the map first');
+    }
+    if (!weatherData) {
+      throw new Error('Weather data not available for selected location');
+    }
+
+    const params = {
+      ...formData,
+      lat: selectedLocation.lat,
+      lon: selectedLocation.lng,
+      wind_speed: weatherData.wind_speed,
+      wind_direction: weatherData.wind_direction,
+      temperature: weatherData.temperature,
+      humidity: weatherData.humidity,
+      pressure: weatherData.pressure,
+      stability_class: weatherData.stability_class,
+      molecular_weight: selectedChemical.molecular_weight,
+      chemical_name: selectedChemical.name,
+      model_type: modelType
+    };
+
+    return params;
+  };
+
+  const runSinglePoint = useCallback(async (modelType) => {
     try {
       setLoading(true);
       setError(null);
-      console.log('Sending model request:', { endpoint, data });
-      const requestData = {
-        ...data,
-        wind_speed: weatherData?.wind_speed || data.u,
-        wind_direction: weatherData?.wind_direction || 0,
-        temperature: weatherData?.temperature || 20,
-        stability_class: data.stability,
-        release_height: data.H,
-        source_strength: data.Q
-      };
-      const res = await axios.post(`${API_BASE}${endpoint}`, requestData);
-      console.log('Model response:', res.data);
-      setResults({ endpoint, data: requestData, result: res.data });
-      setModelResults(res.data);
+
+      let formData;
+      switch (modelType) {
+        case 'puff':
+          formData = puffForm;
+          break;
+        case 'instantaneous':
+          formData = instantForm;
+          break;
+        default:
+          formData = plumeForm;
+      }
+
+      const params = buildModelParams(formData, modelType);
+      params.x = 100;
+      params.y = 0;
+
+      const endpoint = modelType === 'instantaneous' 
+        ? '/model/instantaneous' 
+        : `/model/${modelType}`;
+      
+      const res = await axios.post(`${API_BASE}${endpoint}`, params);
+      
+      setResults({ 
+        type: 'single', 
+        modelType,
+        result: res.data,
+        params: params
+      });
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Model calculation failed';
-      setError(`Model error: ${errorMsg}`);
+      setError(err.message || 'Model calculation failed');
       console.error('Model error:', err);
     } finally {
       setLoading(false);
     }
-  }, [setModelResults, weatherData]);
+  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical]);
 
   const generateGrid = useCallback(async (modelType) => {
     try {
-      setGridLoading(0);
+      setLoading(true);
       setError(null);
-      const form = modelType === 'plume' ? plumeForm : modelType === 'puff' ? puffForm : instantForm;
-      
-      const distances = [50, 100, 200, 300, 500, 1000];
-      const offsets = [-50, -25, 0, 25, 50];
-      const gridPoints = [];
-      
-      const promises = [];
-      for (const x of distances) {
-        for (const y of offsets) {
-          const point = { ...form, x, y };
-          const endpoint = modelType === 'instantaneous' ? '/model/instantaneous' : `/model/${modelType}`;
-          promises.push(
-            axios.post(`${API_BASE}${endpoint}`, point)
-              .then(res => {
-                gridPoints.push({
-                  x,
-                  y,
-                  concentration: res.data.concentration,
-                });
-                setGridLoading(prev => prev + 1);
-              })
-              .catch(err => {
-                console.error(`Grid point error at (${x}, ${y}):`, err);
-              })
-          );
-        }
+
+      let formData;
+      switch (modelType) {
+        case 'puff':
+          formData = puffForm;
+          break;
+        case 'instantaneous':
+          formData = instantForm;
+          break;
+        default:
+          formData = plumeForm;
       }
 
-      await Promise.all(promises);
-
-      if (gridPoints.length === 0) {
-        setError('Failed to generate grid data');
-        return;
-      }
-
-      const maxConc = Math.max(...gridPoints.map((p) => p.concentration));
-      const modelOutput = {
-        type: modelType,
-        grid: gridPoints,
-        concentration: gridPoints.map((p) => p.concentration),
-        max_concentration: maxConc,
-        stability: modelType === 'instantaneous' ? instantForm.stability : 'N/A',
-        metadata: {
-          wind_speed: weatherData?.wind_speed,
-          wind_direction: weatherData?.wind_direction,
-          temperature: weatherData?.temperature,
-          stability_class: modelType === 'instantaneous' ? instantForm.stability : 'D',
-          release_height: form.H,
-          source_strength: form.Q
-        }
-      };
+      const params = buildModelParams(formData, modelType);
+      
+      const response = await axios.post(`${API_BASE}/model/run-grid`, params);
+      
       setResults({
         type: 'grid',
         modelType,
-        gridData: gridPoints,
-        maxConcentration: maxConc,
+        gridData: response.data.grid,
+        maxConcentration: response.data.max_concentration
       });
-      setModelResults(modelOutput);
+      
+      setModelResults(response.data);
     } catch (err) {
-      setError(`Grid generation error: ${err.message}`);
+      setError(err.message || 'Grid generation failed');
       console.error('Grid error:', err);
     } finally {
-      setGridLoading(0);
+      setLoading(false);
     }
-  }, [plumeForm, puffForm, instantForm, setModelResults, weatherData]);
+  }, [plumeForm, puffForm, instantForm, selectedLocation, weatherData, selectedChemical, setModelResults]);
 
-  const getGridProgress = () => {
-    const total = 6 * 5; // 6 distances x 5 offsets
-    return (gridLoading / total) * 100;
+  const renderLocationInfo = () => {
+    if (!selectedLocation) {
+      return (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Please click on the map to select a release location
+        </Alert>
+      );
+    }
+
+    if (!weatherData) {
+      return (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Loading weather data for selected location...
+        </Alert>
+      );
+    }
+
+    return (
+      <Paper sx={{ p: 2, mb: 2, backgroundColor: '#f5f5f5' }}>
+        <Typography variant="subtitle2" gutterBottom>
+          <strong>Release Location:</strong> {selectedLocation.lat.toFixed(4)}, {selectedLocation.lng.toFixed(4)}
+        </Typography>
+        <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid item xs={6}>
+            <Typography variant="body2">Wind: {weatherData.wind_speed} mph @ {weatherData.wind_direction}°</Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="body2">Temp: {weatherData.temperature}°F</Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="body2">Humidity: {weatherData.humidity}%</Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="body2">Stability: Class {weatherData.stability_class}</Typography>
+          </Grid>
+        </Grid>
+      </Paper>
+    );
+  };
+
+  const renderModelForm = (formData, setFormData, modelType) => {
+    const isDisabled = !selectedLocation || !weatherData || loading;
+
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>Model Parameters</Typography>
+              
+              {renderLocationInfo()}
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Chemical</InputLabel>
+                  <Select
+                    value={selectedChemical.id}
+                    onChange={(e) => {
+                      const chem = chemicals.find(c => c.id === e.target.value);
+                      setSelectedChemical(chem);
+                    }}
+                    label="Chemical"
+                  >
+                    {chemicals.map((chem) => (
+                      <MenuItem key={chem.id} value={chem.id}>
+                        {chem.name} (MW: {chem.molecular_weight})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label={modelType === 'instantaneous' ? 'Total Release (g)' : 'Emission Rate (g/s)'}
+                  type="number"
+                  value={formData.Q}
+                  onChange={(e) => setFormData({ ...formData, Q: parseFloat(e.target.value) })}
+                  fullWidth
+                  size="small"
+                  disabled={isDisabled}
+                />
+
+                <TextField
+                  label="Release Height (m)"
+                  type="number"
+                  value={formData.release_height}
+                  onChange={(e) => setFormData({ ...formData, release_height: parseFloat(e.target.value) })}
+                  fullWidth
+                  size="small"
+                  disabled={isDisabled}
+                />
+
+                <TextField
+                  label="Receptor Height (m)"
+                  type="number"
+                  value={formData.z}
+                  onChange={(e) => setFormData({ ...formData, z: parseFloat(e.target.value) })}
+                  fullWidth
+                  size="small"
+                  disabled={isDisabled}
+                />
+
+                {modelType === 'puff' && (
+                  <TextField
+                    label="Time Since Release (s)"
+                    type="number"
+                    value={formData.t}
+                    onChange={(e) => setFormData({ ...formData, t: parseFloat(e.target.value) })}
+                    fullWidth
+                    size="small"
+                    disabled={isDisabled}
+                  />
+                )}
+
+                <Button
+                  variant="contained"
+                  onClick={() => runSinglePoint(modelType)}
+                  disabled={isDisabled}
+                  fullWidth
+                >
+                  {loading ? <CircularProgress size={24} /> : 'Calculate Point'}
+                </Button>
+
+                <Button
+                  variant="outlined"
+                  onClick={() => generateGrid(modelType)}
+                  disabled={isDisabled}
+                  fullWidth
+                >
+                  {loading ? 'Generating...' : 'Generate Grid & Display on Map'}
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={8}>
+          {results && results.type === 'single' && (
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Calculation Result</Typography>
+                <Paper sx={{ p: 3, backgroundColor: '#f5f5f5', textAlign: 'center' }}>
+                  <Typography variant="h3" color="primary" gutterBottom>
+                    {results.result.concentration.toFixed(6)}
+                  </Typography>
+                  <Typography variant="h6" color="textSecondary">
+                    {results.result.units}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 2 }}>
+                    Model: {results.result.model_type} | Stability: Class {results.result.stability_class}
+                  </Typography>
+                  <Typography variant="body2">
+                    Chemical: {selectedChemical.name} (MW: {selectedChemical.molecular_weight})
+                  </Typography>
+                </Paper>
+              </CardContent>
+            </Card>
+          )}
+
+          {results && results.type === 'grid' && (
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Grid Results</Typography>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Max Concentration: <strong>{results.maxConcentration.toFixed(6)}</strong> µg/m³
+                </Typography>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Results displayed on map. Grid shows concentration at various downwind and crosswind distances.
+                </Typography>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={results.gridData.slice(0, 30)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="x" label={{ value: 'Distance (m)', position: 'insideBottom', offset: -5 }} />
+                    <YAxis label={{ value: 'Concentration (µg/m³)', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="concentration" fill="#8884d8" name="Concentration" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {!results && (
+            <Card>
+              <CardContent>
+                <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                  Select a location on the map and configure parameters to run the model
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
+        </Grid>
+      </Grid>
+    );
   };
 
   return (
@@ -175,9 +368,16 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
         <ModelTrainIcon /> Dispersion Modeling
       </Typography>
 
-      {error && <Alert severity="error" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography variant="body2">{error}</Typography>
-      </Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {loading && (
+        <Box sx={{ width: '100%', mb: 2 }}>
+          <LinearProgress />
+          <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+            Running dispersion model...
+          </Typography>
+        </Box>
+      )}
 
       <Paper sx={{ mb: 2 }}>
         <Tabs 
@@ -186,432 +386,15 @@ const ModelingPanel = ({ setModelResults, weatherData }) => {
           sx={{ borderBottom: '1px solid #e0e0e0' }}
           variant="fullWidth"
         >
-          <Tab label="Plume Model" />
-          <Tab label="Puff Model" />
+          <Tab label="Gaussian Plume (Continuous)" />
+          <Tab label="Puff Model (Time-varying)" />
           <Tab label="Instantaneous Release" />
         </Tabs>
       </Paper>
 
-      {/* Model Status */}
-      {(loading || gridLoading > 0) && (
-        <Box sx={{ width: '100%', mb: 2 }}>
-          {loading && <LinearProgress />}
-          {gridLoading > 0 && (
-            <>
-              <Typography variant="body2" color="text.secondary" align="center" gutterBottom>
-                Calculating grid points... {Math.round(getGridProgress())}%
-              </Typography>
-              <LinearProgress variant="determinate" value={getGridProgress()} />
-            </>
-          )}
-        </Box>
-      )}
-
-      {/* Plume Model Tab */}
-      {tab === 0 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Plume Parameters</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="Downwind Distance (m)"
-                    type="number"
-                    value={plumeForm.x}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, x: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Crosswind Distance (m)"
-                    type="number"
-                    value={plumeForm.y}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, y: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Height (m)"
-                    type="number"
-                    value={plumeForm.z}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, z: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Emission Rate Q (g/s)"
-                    type="number"
-                    value={plumeForm.Q}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, Q: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Wind Speed u (m/s)"
-                    type="number"
-                    value={plumeForm.u}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, u: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Stack Height H (m)"
-                    type="number"
-                    value={plumeForm.H}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, H: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Lateral Sigma sy (m)"
-                    type="number"
-                    value={plumeForm.sy}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, sy: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Vertical Sigma sz (m)"
-                    type="number"
-                    value={plumeForm.sz}
-                    onChange={(e) => setPlumeForm({ ...plumeForm, sz: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={() => runModel('/model/plume', plumeForm)}
-                    disabled={loading}
-                    fullWidth
-                  >
-                    {loading ? <CircularProgress size={24} /> : 'Run Plume Model'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => generateGrid('plume')}
-                    disabled={loading || gridLoading > 0}
-                    fullWidth
-                  >
-                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
-                  </Button>
-                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={8}>
-            {results && results.type !== 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
-                    <Typography variant="body1">
-                      Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
-                    </Typography>
-                  </Paper>
-                </CardContent>
-              </Card>
-            )}
-
-            {results && results.type === 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={results.gridData.slice(0, 20)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="x" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="concentration" fill="#8884d8" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-          </Grid>
-        </Grid>
-      )}
-
-      {/* Puff Model Tab */}
-      {tab === 1 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Puff Parameters</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="Downwind Distance (m)"
-                    type="number"
-                    value={puffForm.x}
-                    onChange={(e) => setPuffForm({ ...puffForm, x: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Crosswind Distance (m)"
-                    type="number"
-                    value={puffForm.y}
-                    onChange={(e) => setPuffForm({ ...puffForm, y: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Height (m)"
-                    type="number"
-                    value={puffForm.z}
-                    onChange={(e) => setPuffForm({ ...puffForm, z: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Emission Rate Q (g/s)"
-                    type="number"
-                    value={puffForm.Q}
-                    onChange={(e) => setPuffForm({ ...puffForm, Q: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Wind Speed u (m/s)"
-                    type="number"
-                    value={puffForm.u}
-                    onChange={(e) => setPuffForm({ ...puffForm, u: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Stack Height H (m)"
-                    type="number"
-                    value={puffForm.H}
-                    onChange={(e) => setPuffForm({ ...puffForm, H: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Time Since Release (s)"
-                    type="number"
-                    value={puffForm.t}
-                    onChange={(e) => setPuffForm({ ...puffForm, t: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Lateral Sigma sy (m)"
-                    type="number"
-                    value={puffForm.sy}
-                    onChange={(e) => setPuffForm({ ...puffForm, sy: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Vertical Sigma sz (m)"
-                    type="number"
-                    value={puffForm.sz}
-                    onChange={(e) => setPuffForm({ ...puffForm, sz: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={() => runModel('/model/puff', puffForm)}
-                    disabled={loading}
-                    fullWidth
-                  >
-                    {loading ? <CircularProgress size={24} /> : 'Run Puff Model'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => generateGrid('puff')}
-                    disabled={loading || gridLoading > 0}
-                    fullWidth
-                  >
-                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
-                  </Button>
-                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={8}>
-            {results && results.type !== 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
-                    <Typography variant="body1">
-                      Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
-                    </Typography>
-                  </Paper>
-                </CardContent>
-              </Card>
-            )}
-
-            {results && results.type === 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={results.gridData.slice(0, 20)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="x" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="concentration" fill="#82ca9d" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-          </Grid>
-        </Grid>
-      )}
-
-      {/* Instantaneous Release Tab */}
-      {tab === 2 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Instantaneous Release Parameters</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="Downwind Distance (m)"
-                    type="number"
-                    value={instantForm.x}
-                    onChange={(e) => setInstantForm({ ...instantForm, x: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Crosswind Distance (m)"
-                    type="number"
-                    value={instantForm.y}
-                    onChange={(e) => setInstantForm({ ...instantForm, y: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Height (m)"
-                    type="number"
-                    value={instantForm.z}
-                    onChange={(e) => setInstantForm({ ...instantForm, z: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Total Amount Released Q (g)"
-                    type="number"
-                    value={instantForm.Q}
-                    onChange={(e) => setInstantForm({ ...instantForm, Q: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Wind Speed u (m/s)"
-                    type="number"
-                    value={instantForm.u}
-                    onChange={(e) => setInstantForm({ ...instantForm, u: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label="Stack Height H (m)"
-                    type="number"
-                    value={instantForm.H}
-                    onChange={(e) => setInstantForm({ ...instantForm, H: parseFloat(e.target.value) })}
-                    fullWidth
-                    size="small"
-                  />
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Stability Class</InputLabel>
-                    <Select
-                      value={instantForm.stability}
-                      onChange={(e) => setInstantForm({ ...instantForm, stability: e.target.value })}
-                      label="Stability Class"
-                    >
-                      {STABILITY_CLASSES.map((cls) => (
-                        <MenuItem key={cls} value={cls}>
-                          {cls} - {
-                            cls === 'A' ? 'Very Unstable' :
-                            cls === 'B' ? 'Unstable' :
-                            cls === 'C' ? 'Slightly Unstable' :
-                            cls === 'D' ? 'Neutral' :
-                            cls === 'E' ? 'Slightly Stable' :
-                            'Stable'
-                          }
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <Button
-                    variant="contained"
-                    onClick={() => runModel('/model/instantaneous', instantForm)}
-                    disabled={loading}
-                    fullWidth
-                  >
-                    {loading ? <CircularProgress size={24} /> : 'Run Instantaneous Model'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => generateGrid('instantaneous')}
-                    disabled={loading || gridLoading > 0}
-                    fullWidth
-                  >
-                    {gridLoading > 0 ? `Generating... ${Math.round(getGridProgress())}%` : 'Generate Grid'}
-                  </Button>
-                  {gridLoading > 0 && <LinearProgress variant="determinate" value={getGridProgress()} />}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={8}>
-            {results && results.type !== 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6">Result</Typography>
-                  <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', mt: 2 }}>
-                    <Typography variant="body1">
-                      Concentration: <strong>{results.result.concentration.toFixed(6)}</strong> {results.result.units}
-                    </Typography>
-                  </Paper>
-                </CardContent>
-              </Card>
-            )}
-
-            {results && results.type === 'grid' && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>Grid Results</Typography>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Max Concentration: <strong>{results.maxConcentration.toFixed(4)}</strong> µg/m³
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={results.gridData.slice(0, 20)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="x" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="concentration" fill="#ffc658" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-          </Grid>
-        </Grid>
-      )}
+      {tab === 0 && renderModelForm(plumeForm, setPlumeForm, 'plume')}
+      {tab === 1 && renderModelForm(puffForm, setPuffForm, 'puff')}
+      {tab === 2 && renderModelForm(instantForm, setInstantForm, 'instantaneous')}
     </Box>
   );
 };
