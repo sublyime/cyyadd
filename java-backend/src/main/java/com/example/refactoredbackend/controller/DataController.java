@@ -8,8 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api")
@@ -158,26 +157,79 @@ public class DataController {
         return ResponseEntity.ok(weather);
     }
 
+    @GetMapping("/weather/location")
+    public ResponseEntity<Map<String, Object>> getWeatherForLocation(
+            @RequestParam double lat,
+            @RequestParam double lon) {
+        Map<String, Object> weather = weatherService.getWeatherFromOpenMeteo(lat, lon);
+        return ResponseEntity.ok(weather);
+    }
+
     // ============ DISPERSION MODELS ============
     @PostMapping("/model/plume")
-    public ResponseEntity<Map<String, Object>> calculatePlume(
-            @RequestBody Map<String, Double> params) {
+    public ResponseEntity<Map<String, Object>> calculatePlume(@RequestBody Map<String, Object> params) {
         Map<String, Object> result = dispersionService.calculatePlume(params);
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/model/puff")
-    public ResponseEntity<Map<String, Object>> calculatePuff(
-            @RequestBody Map<String, Double> params) {
+    public ResponseEntity<Map<String, Object>> calculatePuff(@RequestBody Map<String, Object> params) {
         Map<String, Object> result = dispersionService.calculatePuff(params);
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/model/instantaneous")
-    public ResponseEntity<Map<String, Object>> calculateInstantaneous(
-            @RequestBody Map<String, Double> params) {
+    public ResponseEntity<Map<String, Object>> calculateInstantaneous(@RequestBody Map<String, Object> params) {
         Map<String, Object> result = dispersionService.calculateInstantaneous(params);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/model/run-grid")
+    public ResponseEntity<Map<String, Object>> runModelGrid(@RequestBody Map<String, Object> params) {
+        String modelType = (String) params.get("model_type");
+        List<Map<String, Object>> gridPoints = new ArrayList<>();
+        
+        double[] distances = {50, 100, 200, 300, 500, 1000};
+        double[] offsets = {-50, -25, 0, 25, 50};
+        
+        for (double x : distances) {
+            for (double y : offsets) {
+                Map<String, Object> pointParams = new HashMap<>(params);
+                pointParams.put("x", x);
+                pointParams.put("y", y);
+                
+                Map<String, Object> result;
+                switch (modelType) {
+                    case "puff":
+                        result = dispersionService.calculatePuff(pointParams);
+                        break;
+                    case "instantaneous":
+                        result = dispersionService.calculateInstantaneous(pointParams);
+                        break;
+                    default:
+                        result = dispersionService.calculatePlume(pointParams);
+                }
+                
+                Map<String, Object> gridPoint = new HashMap<>();
+                gridPoint.put("x", x);
+                gridPoint.put("y", y);
+                gridPoint.put("concentration", result.get("concentration"));
+                gridPoints.add(gridPoint);
+            }
+        }
+        
+        double maxConcentration = gridPoints.stream()
+            .mapToDouble(p -> ((Number) p.get("concentration")).doubleValue())
+            .max()
+            .orElse(0.0);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("type", modelType);
+        response.put("grid", gridPoints);
+        response.put("max_concentration", maxConcentration);
+        response.put("stability_class", params.get("stability_class"));
+        
+        return ResponseEntity.ok(response);
     }
 
     // ============ HEALTH CHECK ============
